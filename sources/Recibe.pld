@@ -52,6 +52,7 @@ SYSTEMINCLUDE=/boot/develop/headers/posix
 SYSTEMINCLUDE=/boot/home/config/include
 LIBRARY=/boot/system/lib/libroot.so
 LIBRARY=/boot/system/lib/libbe.so
+LIBRARY=/boot/system/lib/liblocale.so
 LIBRARY=/boot/system/develop/lib/libstdc++.so
 LIBRARY=/boot/system/lib/libtracker.so
 LIBRARY=/boot/system/lib/libtranslation.so

@@ -72,6 +72,11 @@ AboutView::AboutView(BRect frame)
 	
 	versionpos.y=height.ascent+height.descent+height.leading+15;
 	versionpos.x=fLogo->Bounds().right - 5 - StringWidth(version);
+
+	fCopyright = "©2007 DarkWyrm / ©2026 Sikosis";
+	fCopyrightPosition.x = (fLogo->Bounds().Width()
+		- StringWidth(fCopyright.String())) / 2;
+	fCopyrightPosition.y = fLogo->Bounds().bottom - height.descent - 10;
 	
 	SetDrawingMode(B_OP_OVER);
 }
@@ -95,4 +100,5 @@ void AboutView::Draw(BRect update)
 {
 	DrawBitmap(fLogo, BPoint(0,0));
 	DrawString(version,versionpos);
+	DrawString(fCopyright.String(), fCopyrightPosition);
 }

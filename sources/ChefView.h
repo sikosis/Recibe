@@ -64,7 +64,7 @@ private:
 	
 	BList		fFavoriteList;
 	
-	BFilePanel	*fSavePanel;
+	BFilePanel	*fExportPanel;
 	
 	BMessage	*fPrintSettings;
 	

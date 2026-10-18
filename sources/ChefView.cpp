@@ -11,8 +11,10 @@
 #include <stdlib.h>
 #include <MenuItem.h>
 #include <ListItem.h>
+#include <LocaleRoster.h>
 #include <TranslationUtils.h>
 #include <FindDirectory.h>
+#include <string.h>
 
 #include "AboutWindow.h"
 #include "DelCatWindow.h"
@@ -35,14 +37,14 @@ enum
 	M_SHOW_DELCAT_WINDOW,
 	M_SHOW_ADD_RECIPE,
 	M_SHOW_EDIT_RECIPE,
-	M_SHOW_SAVE_RECIPE,
+	M_SHOW_EXPORT_RECIPE,
 	M_SHOW_BROWSER,
 	M_SHOW_EMAIL_WINDOW,
 	
 	M_IMPORT_MEALMASTER,
 	M_EXPORT_MEALMASTER,
 	
-	M_SAVE_RECIPE,
+	M_EXPORT_RECIPE,
 	M_EMAIL_RECIPE,
 	M_PRINT_RECIPE,
 	M_DELETE_RECIPE,
@@ -53,6 +55,26 @@ enum
 	M_DELETE_CATEGORY,
 	M_SHOW_ABOUT
 };
+
+static bool
+UsesBritishSpelling()
+{
+	BMessage languages;
+	BLocaleRoster* roster = BLocaleRoster::Default();
+	if (roster == NULL || roster->GetPreferredLanguages(&languages) != B_OK)
+		return false;
+
+	const char* language;
+	if (languages.FindString("language", 0, &language) != B_OK)
+		return false;
+
+	return strncmp(language, "en_AU", 5) == 0
+		|| strncmp(language, "en-AU", 5) == 0
+		|| strncmp(language, "en_GB", 5) == 0
+		|| strncmp(language, "en-GB", 5) == 0
+		|| strncmp(language, "en_UK", 5) == 0
+		|| strncmp(language, "en-UK", 5) == 0;
+}
 
 RecipeItem::RecipeItem(const char *name, const char *category, const int32 &number)
  :	BStringItem((const char *)NULL),
@@ -116,10 +138,13 @@ ChefView::ChefView(const BRect &rect)
 	back->AddChild(bar);
 	
 	fFileMenu = new BMenu("File");
-	fFileMenu->AddItem(new BMenuItem("Save…",new BMessage(M_SHOW_SAVE_RECIPE),'S'));
+	fFileMenu->AddItem(new BMenuItem("Export Recipe…",
+		new BMessage(M_SHOW_EXPORT_RECIPE), 'S', B_COMMAND_KEY | B_SHIFT_KEY));
 	fFileMenu->AddItem(new BMenuItem("Print…",new BMessage(M_PRINT_RECIPE),'P'));
 	fFileMenu->AddSeparatorItem();
 	fFileMenu->AddItem(new BMenuItem("About Recibe…",new BMessage(M_SHOW_ABOUT)));
+	fFileMenu->AddSeparatorItem();
+	fFileMenu->AddItem(new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED), 'Q'));
 	bar->AddItem(fFileMenu);
 	
 	fRecipeMenu = new BMenu("Recipe");
@@ -140,9 +165,13 @@ ChefView::ChefView(const BRect &rect)
 //	fEmailMenu->AddItem(new BMenuItem("Show E-Mail Window",new BMessage(M_SHOW_EMAIL_WINDOW)));
 //	bar->AddItem(fEmailMenu);
 	
-	fFavoritesMenu = new BMenu("Favorites");
-	fFavoritesMenu->AddItem(new BMenuItem("Add to Favorites",new BMessage(M_ADD_BOOKMARK)));
-	fFavoritesMenu->AddItem(new BMenuItem("Remove from Favorites",new BMessage(M_DELETE_BOOKMARK)));
+	bool britishSpelling = UsesBritishSpelling();
+	fFavoritesMenu = new BMenu(britishSpelling ? "Favourites" : "Favorites");
+	fFavoritesMenu->AddItem(new BMenuItem(britishSpelling
+		? "Add to Favourites" : "Add to Favorites", new BMessage(M_ADD_BOOKMARK)));
+	fFavoritesMenu->AddItem(new BMenuItem(britishSpelling
+		? "Remove from Favourites" : "Remove from Favorites",
+		new BMessage(M_DELETE_BOOKMARK)));
 	bar->AddItem(fFavoritesMenu);
 	
 	r.OffsetBy(10,r.Height() + 5);
@@ -183,7 +212,8 @@ ChefView::ChefView(const BRect &rect)
 	fRecipe->MakeEditable(false);
 	fRecipe->SetStylable(true);
 	
-	fSavePanel = new BFilePanel(B_SAVE_PANEL,NULL,NULL,0,false, new BMessage(M_SAVE_RECIPE));
+	fExportPanel = new BFilePanel(B_SAVE_PANEL, NULL, NULL, 0, false,
+		new BMessage(M_EXPORT_RECIPE));
 	
 	LoadFavorites();
 }
@@ -193,7 +223,7 @@ ChefView::~ChefView(void)
 	SaveFavorites();
 	
 	CloseRecipeStore();
-	delete fSavePanel;
+	delete fExportPanel;
 }
 
 void ChefView::AttachedToWindow(void)
@@ -204,7 +234,7 @@ void ChefView::AttachedToWindow(void)
 	fResults->SetTarget(this);
 	
 	BMessenger msgr(this);
-	fSavePanel->SetTarget(msgr);
+	fExportPanel->SetTarget(msgr);
 	
 	fFileMenu->SetTargetForItems(this);
 	fRecipeMenu->SetTargetForItems(this);
@@ -215,6 +245,11 @@ void ChefView::MessageReceived(BMessage *msg)
 {
 	switch(msg->what)
 	{
+		case B_QUIT_REQUESTED:
+		{
+			be_app->PostMessage(B_QUIT_REQUESTED);
+			break;
+		}
 //		case M_SHOW_EMAIL_WINDOW:
 //		{
 //			break;
@@ -236,13 +271,15 @@ void ChefView::MessageReceived(BMessage *msg)
 			win->Show();
 			break;
 		}
-		case M_SHOW_SAVE_RECIPE:
+		case M_SHOW_EXPORT_RECIPE:
 		{
-			if(!GetCurrentRecipe())
+			RecipeItem* item = GetCurrentRecipe();
+			if(item == NULL)
 				break;
-			if(fSavePanel->IsShowing())
-				fSavePanel->Window()->Activate();
-			fSavePanel->Show();
+			fExportPanel->SetSaveText(item->fName.String());
+			if(fExportPanel->IsShowing())
+				fExportPanel->Window()->Activate();
+			fExportPanel->Show();
 			break;
 		}
 		case M_SHOW_FIND_WINDOW:
@@ -378,7 +415,7 @@ void ChefView::MessageReceived(BMessage *msg)
 			}
 			break;
 		}
-		case M_SAVE_RECIPE:
+		case M_EXPORT_RECIPE:
 		{
 			entry_ref ref;
 			BString name;

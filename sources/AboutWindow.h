@@ -8,6 +8,7 @@
 #include <Messenger.h>
 #include <Font.h>
 #include <StatusBar.h>
+#include <String.h>
 
 enum
 {
@@ -36,6 +37,8 @@ public:
 	
 	char version[64];
 	BPoint versionpos;
+	BString fCopyright;
+	BPoint fCopyrightPosition;
 	
 	uint8 fAboutFlags;
 	int32 fEntryCount;
