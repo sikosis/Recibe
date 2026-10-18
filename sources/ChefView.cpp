@@ -11,9 +11,9 @@
 #include <stdlib.h>
 #include <MenuItem.h>
 #include <ListItem.h>
-#include <LocaleRoster.h>
 #include <TranslationUtils.h>
 #include <FindDirectory.h>
+#include <locale.h>
 #include <string.h>
 
 #include "AboutWindow.h"
@@ -59,13 +59,9 @@ enum
 static bool
 UsesBritishSpelling()
 {
-	BMessage languages;
-	BLocaleRoster* roster = BLocaleRoster::Default();
-	if (roster == NULL || roster->GetPreferredLanguages(&languages) != B_OK)
-		return false;
-
-	const char* language;
-	if (languages.FindString("language", 0, &language) != B_OK)
+	setlocale(LC_ALL, "");
+	const char* language = setlocale(LC_MESSAGES, NULL);
+	if (language == NULL)
 		return false;
 
 	return strncmp(language, "en_AU", 5) == 0
