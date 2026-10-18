@@ -27,14 +27,13 @@ FindWindow::FindWindow(const BRect &frame, const BMessenger &msgr,
 	AddChild(back);
 	
 	fCategories = new BMenu("Categories");
-	CppSQLite3Query query = DBQuery("select category from categories order by category;",
-									"FindWindow:get categories");
-	while(!query.eof())
-	{
-		BString cat(DeescapeIllegalCharacters(query.getStringField(0)));
-		fCategories->AddItem(new BMenuItem(cat.String(),new BMessage('dmmy')));
-		query.nextRow();
+	BList categories;
+	GetCategories(categories);
+	for (int32 i = 0; i < categories.CountItems(); i++) {
+		BString* cat = static_cast<BString*>(categories.ItemAt(i));
+		fCategories->AddItem(new BMenuItem(cat->String(), new BMessage('dmmy')));
 	}
+	FreeCategories(categories);
 	fCategories->SetRadioMode(true);
 	fCategories->SetLabelFromMarked(true);
 	if(fCategories->CountItems()>0)

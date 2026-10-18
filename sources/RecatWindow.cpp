@@ -74,20 +74,19 @@ RecatWindow::RecatWindow(const BRect &frame, const BMessenger &msgr,
 	r.bottom = fOK->Frame().top - 10;
 	fNewList->Parent()->ResizeTo(r.Width(),r.Height());
 
-	CppSQLite3Query query = DBQuery("select category from categories order by category;",
-									"RecatWindow:GetCategories");
-	while(!query.eof())
-	{
-		BString cat(DeescapeIllegalCharacters(query.getStringField(0)));
-		fNewList->AddItem(new BStringItem(cat.String()));
+	BList categories;
+	GetCategories(categories);
+	for (int32 i = 0; i < categories.CountItems(); i++) {
+		BString* cat = static_cast<BString*>(categories.ItemAt(i));
+		fNewList->AddItem(new BStringItem(cat->String()));
 		
-		if(cat.ICompare(old)==0)
+		if(cat->ICompare(old)==0)
 		{
 			int32 index = fNewList->CountItems() - 1;
 			fNewList->Select(index);
 		}
-		query.nextRow();
 	}
+	FreeCategories(categories);
 }
 
 

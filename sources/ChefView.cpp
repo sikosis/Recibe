@@ -99,12 +99,10 @@ ChefView::ChefView(const BRect &rect)
 	
 	BPath path;
 	find_directory(B_USER_SETTINGS_DIRECTORY, &path);
-	BString dbpath(path.Path());
-	dbpath << "/recipes.db";
+	BString storePath(path.Path());
+	storePath << "/Recibe/recipes";
 	
-	// By calling this instead of just opening it ourselves, we can also make sure
-	// that if the database is created instead of opened that we have a sane database setup
-	OpenDatabase(dbpath.String());
+	OpenRecipeStore(storePath.String());
 	
 	BView *back = new BView(Bounds(),"back",B_FOLLOW_ALL, B_WILL_DRAW);
 	back->SetViewColor(ui_color(B_PANEL_BACKGROUND_COLOR));
@@ -194,7 +192,7 @@ ChefView::~ChefView(void)
 {
 	SaveFavorites();
 	
-	gDatabase.close();
+	CloseRecipeStore();
 	delete fSavePanel;
 }
 
@@ -437,7 +435,6 @@ void ChefView::MessageReceived(BMessage *msg)
 			if(number < 0)
 			{
 				int32 index = 0, selection;
-				DBCommand("BEGIN","ChefView:begin mass recat");
 				Window()->BeginViewTransaction();
 				do
 				{
@@ -455,7 +452,6 @@ void ChefView::MessageReceived(BMessage *msg)
 					
 				} while(selection >= 0);
 				Window()->EndViewTransaction();
-				DBCommand("COMMIT","ChefView:end mass recat");
 				ClearResults();
 				fRecipe->SetText("");
 				
@@ -530,28 +526,24 @@ void ChefView::SetRecipe(const int32 &number, const char *category)
 {
 	if (number < 0 || !category)
 		return;
-	
-	BString command = "select * from ";
-	command << category << " where number = " << number << ";";
-	
-	CppSQLite3Query query = DBQuery(command.String(),"SetRecipe");
-	
-	if(!query.eof())
+
+	BString name, ingredients, directions;
+	if(GetRecipe(number, category, name, ingredients, directions))
 	{
 		BString data;
 		
-		data << "Category: " << DeescapeIllegalCharacters(category);
+		data << "Category: " << category;
 		fCategoryLabel->SetText(data.String());
 		
 		fRecipe->SetText("");
 		fRecipe->SetFontAndColor(&fHeaderFont);
 
-		data = DeescapeIllegalCharacters(query.getStringField(1)) << "\n\n";
+		data = name << "\n\n";
 		fRecipe->Insert(data.String());
 		
 		fRecipe->SetFontAndColor(be_plain_font);
-		data = DeescapeIllegalCharacters(query.getStringField(2)) << "\n\n";
-		data << DeescapeIllegalCharacters(query.getStringField(3));
+		data = ingredients << "\n\n";
+		data << directions;
 		fRecipe->Insert(data.String());
 	}
 }
@@ -565,92 +557,26 @@ int32 ChefView::SearchThread(void *data)
 
 void ChefView::DoSearch(void)
 {
-	// this search engine will be a little funky for time's sake. 
-	BString command = "select * from ", namesearch, ingsearch, *item=NULL;
-	BString esccat(EscapeIllegalCharacters(fSearchCategory.String()));
-	if(fSearchCategory.Length() > 0)
-		command += esccat;
-	else
+	if(fSearchCategory.Length() <= 0)
 		return;
 	
-	if(fSearchName.Length() > 0)
-	{
-		BList namelist;
-		
-		TokenizeWords(fSearchName.String(), &namelist);
-		for(int32 i = namelist.CountItems() - 1; i >= 0; i--)
-		{
-			item = (BString *)namelist.ItemAt(i);
-			if(item)
-			{
-				namesearch	<< " name like upper('%" 
-							<< EscapeIllegalCharacters(item->String()) << "%') and";
-			}
-			delete item;
-		}
-		namesearch.RemoveLast("and");
-		item = NULL;
-	}
-
-	if(fSearchIngredients.Length() > 0)
-	{
-		BList inglist;
-		
-		TokenizeWords(fSearchIngredients.String(), &inglist);
-		for(int32 i = inglist.CountItems() - 1; i >= 0; i--)
-		{
-			item = (BString *)inglist.ItemAt(i);
-			if(item)
-			{
-				ingsearch << " ingredients like upper('%"
-							<< EscapeIllegalCharacters(item->String()) << "%') and";
-			}
-			delete item;
-		}
-		ingsearch.RemoveLast("and");
-	}
-	
-	if(ingsearch.CountChars() > 0 &&  namesearch.CountChars() > 0)
-	{
-		command << " where (" << ingsearch << ") and (" << namesearch << ") order by name;";
-	}
-	else
-	if(namesearch.CountChars() > 0)
-	{
-		command << " where " << namesearch << " order by name;";
-	}
-	else
-	if(ingsearch.CountChars() > 0)
-	{
-		command << " where " << ingsearch << " order by name;";
-	}
-	else
-	{
-		command << " order by name";
-	}
-	
 	SetSearching(true);
-	
-	CppSQLite3Query query = DBQuery(command.String(), "DoSearch");
-	
-	if(!query.eof())
+
+	BList recipes;
+	SearchRecipes(fSearchCategory.String(), fSearchName.String(),
+		fSearchIngredients.String(), 200, recipes);
+	Window()->Lock();
+	ClearResults();
+	Window()->UpdateIfNeeded();
+	Window()->Unlock();
+	if(!recipes.IsEmpty())
 	{
-		// Empty results box
-		Window()->Lock();
-		ClearResults();
-		Window()->UpdateIfNeeded();
-		Window()->Unlock();
-		
-		for(int32 i = 0; i < 200; i++)
+		for(int32 i = 0; i < recipes.CountItems(); i++)
 		{
-			if(query.eof())
-				break;
-			
+			RecipeRecord* recipe = static_cast<RecipeRecord*>(recipes.ItemAt(i));
 			Window()->Lock();
-			BString string = query.getStringField(1);
-			fResults->AddItem(new RecipeItem(DeescapeIllegalCharacters(string.String()).String(),
-											esccat.String(),
-											query.getIntField(0)));
+			fResults->AddItem(new RecipeItem(recipe->name.String(),
+				fSearchCategory.String(), recipe->number));
 			if(fResults->CountItems()==1)
 			{
 				fResults->Select(0L);
@@ -663,9 +589,9 @@ void ChefView::DoSearch(void)
 				Window()->Lock();
 			}
 			Window()->Unlock();
-			query.nextRow();
 		}
 	}
+	FreeRecipes(recipes);
 	SetSearching(false);
 }
 
@@ -739,22 +665,20 @@ void ChefView::DoPrint()
 	win->AddChild(printview);
 	
 	RecipeItem *item = GetCurrentRecipe();
-	
-	BString command = "select * from ";
-	command << EscapeIllegalCharacters(item->fCategory.String())
-			<< " where number = " << item->fNumber << ";";
-	
-	CppSQLite3Query query = DBQuery(command.String(),"DoPrint");
-	
-	if(!query.eof())
+	if (item == NULL)
+		return;
+
+	BString name, ingredients, directions;
+	if(GetRecipe(item->fNumber, item->fCategory.String(), name, ingredients,
+		directions))
 	{
 		printview->SetFontAndColor(&fHeaderFont);
-		BString data = DeescapeIllegalCharacters(query.getStringField(1)) << "\n\n";
+		BString data = name << "\n\n";
 		printview->Insert(data.String());
 		
 		printview->SetFontAndColor(be_plain_font);
-		data = DeescapeIllegalCharacters(query.getStringField(2)) << "\n\n";
-		data << DeescapeIllegalCharacters(query.getStringField(3));
+		data = ingredients << "\n\n";
+		data << directions;
 		printview->Insert(data.String());
 	}
 

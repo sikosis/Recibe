@@ -64,14 +64,13 @@ CatBrowser::CatBrowser(const BRect &frame, const BMessenger &msgr,
 	AddChild(back);
 	
 	fCategories = new BMenu("Categories");
-	CppSQLite3Query query = DBQuery("select category from categories order by category;",
-									"FindWindow:get categories");
-	while(!query.eof())
-	{
-		BString cat(DeescapeIllegalCharacters(query.getStringField(0)));
-		fCategories->AddItem(new BMenuItem(cat.String(),new BMessage(M_SET_CATEGORY)));
-		query.nextRow();
+	BList categories;
+	GetCategories(categories);
+	for (int32 i = 0; i < categories.CountItems(); i++) {
+		BString* cat = static_cast<BString*>(categories.ItemAt(i));
+		fCategories->AddItem(new BMenuItem(cat->String(), new BMessage(M_SET_CATEGORY)));
 	}
+	FreeCategories(categories);
 	fCategories->SetRadioMode(true);
 	fCategories->SetLabelFromMarked(true);
 	if(fCategories->CountItems()>0)
@@ -171,14 +170,7 @@ CatBrowser::~CatBrowser(void)
 
 void CatBrowser::SetupQuery(void)
 {
-	BString command, esccat = EscapeIllegalCharacters(fCategory.String());
-	CppSQLite3Query query;
-	
-	command = "select count(number) from ";
-	command << esccat << ";";
-	query = DBQuery(command.String(), "CatBrowser::SetupQuery:get category count");
-	
-	fCategoryCount = (query.eof()) ? 0 : query.getIntField(0);
+	fCategoryCount = CountRecipes(fCategory.String());
 	
 	for(int32 i = 0; i < fPageList.CountItems(); i++)
 	{
@@ -186,12 +178,11 @@ void CatBrowser::SetupQuery(void)
 		page->MakeEmpty();
 	}
 	
-	fPageCount = (fCategoryCount / BROWSE_MODE_RECIPE_COUNT);
-	if( (fPageCount % BROWSE_MODE_RECIPE_COUNT) || fPageCount < BROWSE_MODE_RECIPE_COUNT)
-		fPageCount++;
+	int32 pageSize = fEditMode ? EDIT_MODE_RECIPE_COUNT : BROWSE_MODE_RECIPE_COUNT;
+	fPageCount = (fCategoryCount + pageSize - 1) / pageSize;
 	if(fPageList.CountItems() < fPageCount)
 	{
-		for(int32 i = fPageList.CountItems(); i <= fPageCount; i++)
+		for(int32 i = fPageList.CountItems(); i < fPageCount; i++)
 			fPageList.AddItem(new QueryPage());
 	}
 	
@@ -200,7 +191,6 @@ void CatBrowser::SetupQuery(void)
 
 void CatBrowser::RunQuery(void)
 {
-	BString esccat(EscapeIllegalCharacters(fCategory.String()));
 	if(fCategory.CountChars() < 1)
 		return;
 	
@@ -218,8 +208,7 @@ void CatBrowser::RunQuery(void)
 	
 	int32 itemcount = fEditMode ? EDIT_MODE_RECIPE_COUNT : BROWSE_MODE_RECIPE_COUNT;
 	
-	BString command;
-	CppSQLite3Query query;
+	BList recipes;
 	
 	if(fCurrentPage >= 0)
 	{
@@ -229,31 +218,24 @@ void CatBrowser::RunQuery(void)
 		if(!page)
 			return;
 		
-		command = "select * from ";
 		if(page->init)
 		{
-			command << esccat << " where (number >= " << page->start
-					<< ") and (number <= " << page->end << ") " << fSortString << ";";
+			GetRecipes(fCategory.String(), page->start, page->end,
+				false, itemcount, recipes);
 		}
 		else
 		{
 			lastpage = (QueryPage*)fPageList.ItemAt(fCurrentPage - 1);
-			command << esccat << " where number >= " << (lastpage->end + 1)
-					<< fSortString << ";";
+			GetRecipes(fCategory.String(), lastpage->end + 1, -1,
+				false, itemcount, recipes);
 		}
-		
-		query = DBQuery(command.String(), "CatBrowser:get category");
+
 		RecipeItem *ritem = NULL;
-		for(int32 i = 0; i < itemcount; i++)
+		for(int32 i = 0; i < recipes.CountItems(); i++)
 		{
-			if(query.eof())
-				break;
-			
-			BString string = query.getStringField(1);
-			ritem = new RecipeItem(DeescapeIllegalCharacters(string.String()).String(),
-									esccat.String(), query.getIntField(0));
+			RecipeRecord* recipe = static_cast<RecipeRecord*>(recipes.ItemAt(i));
+			ritem = new RecipeItem(recipe->name.String(), fCategory.String(), recipe->number);
 			fList->AddItem(ritem);
-			query.nextRow();
 		}
 		if(lastpage && ritem)
 		{
@@ -264,22 +246,14 @@ void CatBrowser::RunQuery(void)
 	}
 	else
 	{
-		command = "select * from ";
-		command << esccat << " where number >= 0 " << fSortString << ";";
-		
-		query = DBQuery(command.String(), "CatBrowser:get category");
+		GetRecipes(fCategory.String(), 0, -1, false, itemcount, recipes);
 		
 		RecipeItem *ritem = NULL;
-		for(int32 i = 0; i < itemcount; i++)
+		for(int32 i = 0; i < recipes.CountItems(); i++)
 		{
-			if(query.eof())
-				break;
-			
-			BString string = query.getStringField(1);
-			ritem = new RecipeItem(DeescapeIllegalCharacters(string.String()).String(),
-									esccat.String(), query.getIntField(0));
+			RecipeRecord* recipe = static_cast<RecipeRecord*>(recipes.ItemAt(i));
+			ritem = new RecipeItem(recipe->name.String(), fCategory.String(), recipe->number);
 			fList->AddItem(ritem);
-			query.nextRow();
 		}
 		if(ritem)
 		{
@@ -290,6 +264,7 @@ void CatBrowser::RunQuery(void)
 			page->init = true;
 		}
 	}
+	FreeRecipes(recipes);
 	
 	fList->Select(0L);
 	fList->MakeFocus(true);
@@ -359,7 +334,6 @@ void CatBrowser::MessageReceived(BMessage *msg)
 			msg->FindString("newcategory",&newcat);
 			
 			int32 index = 0, selection;
-			DBCommand("BEGIN","CatBrowser:begin mass recat");
 			BeginViewTransaction();
 			do
 			{
@@ -377,7 +351,6 @@ void CatBrowser::MessageReceived(BMessage *msg)
 				
 			} while(selection >= 0);
 			EndViewTransaction();
-			DBCommand("COMMIT","ChefView:end mass recat");
 			SetupQuery();
 			RunQuery();
 			break;
@@ -414,7 +387,6 @@ void CatBrowser::MessageReceived(BMessage *msg)
 		case M_DELETE_RECIPE:
 		{
 			int32 index = 0, selection;
-			DBCommand("BEGIN","CatBrowser:begin mass delete");
 			BeginViewTransaction();
 			do
 			{
@@ -429,7 +401,6 @@ void CatBrowser::MessageReceived(BMessage *msg)
 				
 			} while(selection >= 0);
 			EndViewTransaction();
-			DBCommand("COMMIT","ChefView:end mass recat");
 			SetupQuery();
 			RunQuery();
 			

@@ -16,3 +16,11 @@ I hope you enjoy Recibe and happy cooking!
 
 DarkWyrm
 darkwyrm@earthlink.net
+
+Storage
+
+Recibe stores recipes using Haiku's native Storage Kit. Categories are folders
+under ~/config/settings/Recibe/recipes and each recipe is a flattened BMessage
+file with RECIBE:name, RECIBE:category, and RECIBE:number attributes. SQLite is
+not required. Older recipes.db files are left untouched and are not imported
+automatically.

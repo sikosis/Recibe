@@ -31,7 +31,7 @@ TYPE=APP
 #	are included from different directories.  Also note that spaces
 #	in folder names do not work well with this makefile.
 SRCS=AboutWindow.cpp AddCatWindow.cpp AutoTextControl.cpp \
-	CatBrowser.cpp ChefView.cpp ChefWindow.cpp CppSQLite3.cpp \
+	CatBrowser.cpp ChefView.cpp ChefWindow.cpp \
 	DelCatWindow.cpp FindWindow.cpp RecatWindow.cpp Recibe.cpp \
 	RecipeEditor.cpp RecipeFuncs.cpp SplitterView.cpp TextFile.cpp
 
@@ -59,7 +59,7 @@ RSRCS=
 #		naming scheme you need to specify the path to the library
 #		and it's name
 #		library: my_lib.a entry: my_lib.a or path/my_lib.a
-LIBS=be sqlite3 tracker translation
+LIBS=be tracker translation
 
 #	specify additional paths to directories following the standard
 #	libXXX.so or libXXX.a naming scheme.  You can specify full paths

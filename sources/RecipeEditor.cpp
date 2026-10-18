@@ -29,16 +29,15 @@ RecipeEditor::RecipeEditor(const BRect &frame, const BMessenger &msgr,
 	AddChild(back);
 	
 	fCategories = new BMenu("Categories");
-	CppSQLite3Query query = DBQuery("select category from categories order by category;",
-									"RecipeEditor:get categories");
-	while(!query.eof())
-	{
-		BString cat(DeescapeIllegalCharacters(query.getStringField(0)));
+	BList categories;
+	GetCategories(categories);
+	for (int32 i = 0; i < categories.CountItems(); i++) {
+		BString* cat = static_cast<BString*>(categories.ItemAt(i));
 		BMessage *menumsg = new BMessage(M_CATEGORY_CHANGED);
-		menumsg->AddString("name",cat);
-		fCategories->AddItem(new BMenuItem(cat.String(),menumsg));
-		query.nextRow();
+		menumsg->AddString("name", cat->String());
+		fCategories->AddItem(new BMenuItem(cat->String(),menumsg));
 	}
+	FreeCategories(categories);
 	fCategories->SetRadioMode(true);
 	fCategories->SetLabelFromMarked(true);
 	if(fCategories->CountItems()>0)
@@ -174,13 +173,17 @@ void RecipeEditor::MessageReceived(BMessage *msg)
 		case M_CATEGORY_CHANGED:
 		{
 			BString name;
-			if(msg->FindString("name",&name)==B_OK)
+			// While editing, fCategory identifies the original file. The marked
+			// menu item identifies a newly selected destination category.
+			if(fNumber < 0 && msg->FindString("name",&name)==B_OK)
 				fCategory = name;
 			break;
 		}
 		case M_EDIT_RECIPE:
 		{
 			BMenuItem *item = fCategories->FindMarked();
+			if (item == NULL)
+				break;
 			if(fCategory.Compare(item->Label()) == 0)
 			{
 				UpdateRecipe(fNumber, fCategory.String(), fNameBox->Text(),
@@ -188,11 +191,9 @@ void RecipeEditor::MessageReceived(BMessage *msg)
 			}
 			else
 			{
-				// we're also recategorizing the recipe, so we'll just delete the old
-				// one and add it to the new one
-				DeleteRecipe(fNumber, fCategory.String());
-				AddRecipe(fCategory.String(), fNameBox->Text(),
-						fIngredientBox->Text(), fDirectionsBox->Text());
+				if (AddRecipe(item->Label(), fNameBox->Text(),
+					fIngredientBox->Text(), fDirectionsBox->Text()))
+					DeleteRecipe(fNumber, fCategory.String());
 			}
 			fMessenger.SendMessage(M_SET_RECIPE);
 			PostMessage(B_QUIT_REQUESTED);

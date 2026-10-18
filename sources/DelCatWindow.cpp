@@ -47,14 +47,13 @@ DelCatWindow::DelCatWindow(const BRect &frame, const char *category)
 	
 	
 	fCategories = new BMenu("Categories");
-	CppSQLite3Query query = DBQuery("select category from categories order by category;",
-									"DelCatWindow:get categories");
-	while(!query.eof())
-	{
-		BString cat(DeescapeIllegalCharacters(query.getStringField(0)));
-		fCategories->AddItem(new BMenuItem(cat.String(),new BMessage('dmmy')));
-		query.nextRow();
+	BList categories;
+	GetCategories(categories);
+	for (int32 i = 0; i < categories.CountItems(); i++) {
+		BString* cat = static_cast<BString*>(categories.ItemAt(i));
+		fCategories->AddItem(new BMenuItem(cat->String(), new BMessage('dmmy')));
 	}
+	FreeCategories(categories);
 	fCategories->SetRadioMode(true);
 	fCategories->SetLabelFromMarked(true);
 	if(fCategories->CountItems()>0)
@@ -133,14 +132,7 @@ void DelCatWindow::MessageReceived(BMessage *msg)
 			BMenuItem *item = fCategories->FindMarked();
 			if(!item)
 				break;
-			BString cat = EscapeIllegalCharacters(item->Label());
-			BString command = "drop table ";
-			command << cat << ";";
-			DBCommand(command.String(),"DelCatWindow:delete category table");
-			
-			command = "delete from categories where category = '";
-			command << cat << "';";
-			DBCommand(command.String(), "DelCatWindow:delete category from cat list");
+			DeleteCategory(item->Label());
 			PostMessage(B_QUIT_REQUESTED);
 			break;
 		}
