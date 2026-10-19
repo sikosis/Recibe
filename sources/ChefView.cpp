@@ -11,6 +11,10 @@
 #include <stdlib.h>
 #include <MenuItem.h>
 #include <ListItem.h>
+#include <FormattingConventions.h>
+#include <Locale.h>
+#include <LocaleRoster.h>
+#include <Message.h>
 #include <TranslationUtils.h>
 #include <FindDirectory.h>
 #include <locale.h>
@@ -57,10 +61,8 @@ enum
 };
 
 static bool
-UsesBritishSpelling()
+IsBritishEnglish(const char* language)
 {
-	setlocale(LC_ALL, "");
-	const char* language = setlocale(LC_MESSAGES, NULL);
 	if (language == NULL)
 		return false;
 
@@ -70,6 +72,40 @@ UsesBritishSpelling()
 		|| strncmp(language, "en-GB", 5) == 0
 		|| strncmp(language, "en_UK", 5) == 0
 		|| strncmp(language, "en-UK", 5) == 0;
+}
+
+
+static bool
+UsesBritishSpelling()
+{
+	// Haiku's Locale preferences are independent of the POSIX locale.
+	// Use the first preferred language, which includes the regional variant
+	// when one is selected (for example, en_AU or en_GB).
+	BMessage preferredLanguages;
+	if (BLocaleRoster::Default()->GetPreferredLanguages(&preferredLanguages)
+			== B_OK) {
+		const char* language = NULL;
+		if (preferredLanguages.FindString("language", 0, &language) == B_OK
+				&& IsBritishEnglish(language)) {
+			return true;
+		}
+	}
+
+	// Haiku lets the user choose regional formatting separately from the
+	// preferred language. Honour an Australian or British region there too.
+	const BLocale* locale = BLocaleRoster::Default()->GetDefaultLocale();
+	if (locale != NULL) {
+		BFormattingConventions conventions;
+		if (locale->GetFormattingConventions(&conventions) == B_OK
+				&& IsBritishEnglish(conventions.ID())) {
+			return true;
+		}
+	}
+
+	// Retain a fallback for BeOS-compatible environments without Locale Kit
+	// preferences.
+	setlocale(LC_ALL, "");
+	return IsBritishEnglish(setlocale(LC_MESSAGES, NULL));
 }
 
 RecipeItem::RecipeItem(const char *name, const char *category, const int32 &number)
