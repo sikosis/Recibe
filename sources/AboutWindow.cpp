@@ -3,6 +3,7 @@
 #include <Roster.h>
 #include <String.h>
 #include <stdio.h>
+#include <string.h>
 #include <Screen.h>
 #include <TranslationUtils.h>
 #include "AboutWindow.h"
@@ -61,11 +62,13 @@ AboutView::AboutView(BRect frame)
 			break;
 	}
 	
-	if(variety!="Final")
-		sprintf(version,"%s %lu.%lu %s%lu",TRANSLATE("v"),vi.major,
-			vi.middle,variety.String(),vi.internal);
-	else
-		sprintf(version,"%s %lu.%lu",TRANSLATE("v"),vi.major,vi.middle);
+	BString versionNumber;
+	versionNumber << TRANSLATE("v") << vi.major << "." << vi.middle;
+	if (vi.minor > 0)
+		versionNumber << vi.minor;
+	if (variety != "Final")
+		versionNumber << " " << variety << vi.internal;
+	strlcpy(version, versionNumber.String(), sizeof(version));
 	
 	font_height height;
 	be_plain_font->GetHeight(&height);
