@@ -93,11 +93,16 @@ Since the original ca61659 codebase, we have made these updates:
 > [!WARNING]
     Lots of features I'd like to add but baby steps ... take it one day at a time and we'll just keep chipping away at it until it's perfect.
 
+The ordered implementation plan is maintained in [ROADMAP.md](ROADMAP.md).
+To continue development, ask to start the next roadmap phase.
+
     So the not finished, short list is:
       - Pictures
       - Hyperlinks
       - Coloured Display Text
       - Cleaner UI
+      - Light and Dark Themes
+      - Kitchen Conversion Table
       - Print - Recipe / Shopping List / Just Instructions
 
 ---
