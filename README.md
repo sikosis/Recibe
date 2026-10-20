@@ -1,15 +1,8 @@
-<table>
-  <tr>
-    <td style="width: 80px;"><img src="artwork/recibe-icon.svg" alt="Recibe - a Recipe Manager for Haiku" width="80%"></td>
-    <td style="width: 150px; font-size: 42px; font-weight: bold; ">Recibe</td>
-    <td style="width: 600px; valign: bottom; "><a href="https://www.haiku-os.org/"><img src="https://img.shields.io/badge/platform-Haiku-blue"></a><img src="https://img.shields.io/badge/build-active-brightgreen"><img src="https://img.shields.io/badge/license-MIT-blue"><img src="https://img.shields.io/badge/version-v1.26-orange"></td>
-  </tr>
-</table>
+# Recibe [![platform](https://img.shields.io/badge/platform-Haiku-blue)](https://www.haiku-os.org/) ![build](https://img.shields.io/badge/build-active-brightgreen) [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE) ![version](https://img.shields.io/badge/version-v1.26-orange)
 
----
 
 <p align="center">
-<img src="artwork/screenshot.png" alt="Recibe" width="600px"><br/>
+<img src="artwork/screenshot.png" alt="Recibe - a Recipe Manager for Haiku" width="600px"><br/>
 a Recipe Manager for Haiku
 </p>
 
