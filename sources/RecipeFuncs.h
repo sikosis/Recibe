@@ -4,14 +4,25 @@
 #include <List.h>
 #include <String.h>
 #include <SupportDefs.h>
+#include <vector>
+
+struct IngredientRecord {
+	BString quantity;
+	BString measurement;
+	BString name;
+};
 
 struct RecipeRecord {
 	RecipeRecord();
 
+	int32 schemaVersion;
 	int32 number;
+	BString category;
 	BString name;
 	BString ingredients;
+	BString ingredientNotes;
 	BString directions;
+	std::vector<IngredientRecord> ingredientRows;
 };
 
 // The recipe store is a directory. Each category is a subdirectory and each
@@ -23,6 +34,7 @@ status_t GetCategories(BList& categories);
 void FreeCategories(BList& categories);
 status_t GetRecipes(const char* category, int32 firstNumber, int32 lastNumber,
 	bool sortByName, int32 limit, BList& recipes);
+status_t GetAllRecipes(BList& recipes);
 status_t SearchRecipes(const char* category, const char* nameWords,
 	const char* ingredientWords, int32 limit, BList& recipes);
 void FreeRecipes(BList& recipes);
@@ -34,12 +46,23 @@ bool CategoryExists(const char* name);
 void AddCategory(const char* name);
 bool ChangeCategory(const int32& number, const char* oldcat, const char* newcat);
 bool AddRecipe(const char* category, const char* name,
-	const char* ingredients, const char* directions);
+	const char* ingredients, const char* directions,
+	const std::vector<IngredientRecord>* ingredientRows = NULL,
+	const char* ingredientNotes = NULL);
 bool UpdateRecipe(const int32& number, const char* category,
-	const char* name, const char* ingredients, const char* directions);
+	const char* name, const char* ingredients, const char* directions,
+	const std::vector<IngredientRecord>* ingredientRows = NULL,
+	const char* ingredientNotes = NULL);
 bool GetRecipe(const int32& number, const char* category,
-	BString& name, BString& ingredients, BString& directions);
+	BString& name, BString& ingredients, BString& directions,
+	std::vector<IngredientRecord>* ingredientRows = NULL,
+	BString* ingredientNotes = NULL);
 bool RecipeExists(const int32& number, const char* category, const char* name);
+
+status_t GetIngredientNames(BList& ingredients);
+BString FormatIngredient(const IngredientRecord& ingredient);
+BString BuildIngredientsText(const std::vector<IngredientRecord>& ingredients,
+	const char* freeformNotes);
 
 status_t TokenizeWords(const char* source, BList* stringarray);
 void CapitalizeEachWord(BString& string);

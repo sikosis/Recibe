@@ -14,6 +14,8 @@
 
 class RecipeItem;
 class VSplitterView;
+class EmptyRecipeView;
+class BScrollView;
 
 #define M_JUMP_TO_BOOKMARK 'jmbk'
 
@@ -39,6 +41,8 @@ private:
 	status_t PageSetup(void);
 	
 	void ClearResults(void);
+	void LoadAllRecipes(void);
+	void ShowEmptyRecipe(void);
 	
 	void AddFavorite(const int32 &number, const char *category,
 					const char *name);
@@ -54,6 +58,8 @@ private:
 	BStringView	*fCategoryLabel;
 	BTextView	*fRecipe;
 	BListView	*fResults;
+	BScrollView	*fRecipeScroll;
+	EmptyRecipeView *fEmptyRecipe;
 	
 	BButton		*fFind;
 	

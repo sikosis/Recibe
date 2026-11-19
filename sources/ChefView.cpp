@@ -1,5 +1,9 @@
 #include "ChefView.h"
 #include <Alert.h>
+#include <AppFileInfo.h>
+#include <Bitmap.h>
+#include <File.h>
+#include <IconUtils.h>
 #include <Path.h>
 #include <Roster.h>
 #include <Application.h>
@@ -15,6 +19,7 @@
 #include <Locale.h>
 #include <LocaleRoster.h>
 #include <Message.h>
+#include <Mime.h>
 #include <TranslationUtils.h>
 #include <FindDirectory.h>
 #include <locale.h>
@@ -30,6 +35,63 @@
 #include "AddCatWindow.h"
 #include "TextFile.h"
 #include "SplitterView.h"
+
+class EmptyRecipeView : public BView
+{
+public:
+	EmptyRecipeView(BRect frame)
+		:	BView(frame, "empty recipe", B_FOLLOW_ALL, B_WILL_DRAW),
+			fIcon(NULL)
+	{
+		rgb_color background = ui_color(B_DOCUMENT_BACKGROUND_COLOR);
+		SetViewColor(background);
+		SetLowColor(background);
+		app_info info;
+		if (be_app->GetAppInfo(&info) == B_OK) {
+			BFile file(&info.ref, B_READ_ONLY);
+			BAppFileInfo appInfo(&file);
+			fIcon = new BBitmap(BRect(0, 0, 159, 159), B_RGBA32);
+			if (fIcon->InitCheck() != B_OK
+					|| BIconUtils::GetVectorIcon(&file, "BEOS:ICON", fIcon)
+						!= B_OK) {
+				delete fIcon;
+				fIcon = new BBitmap(BRect(0, 0, 31, 31), B_RGBA32);
+				if (fIcon->InitCheck() != B_OK
+						|| appInfo.GetIcon(fIcon, B_LARGE_ICON) != B_OK) {
+					delete fIcon;
+					fIcon = NULL;
+				}
+			}
+		}
+	}
+
+	virtual ~EmptyRecipeView()
+	{
+		delete fIcon;
+	}
+
+	virtual void Draw(BRect update)
+	{
+		FillRect(update, B_SOLID_LOW);
+		if (fIcon == NULL)
+			return;
+
+		float size = min_c(Bounds().Width(), Bounds().Height()) * 0.35f;
+		if (size > 160)
+			size = 160;
+		if (size < 64)
+			size = 64;
+		BRect destination(0, 0, size, size);
+		destination.OffsetTo((Bounds().Width() - size) / 2,
+			(Bounds().Height() - size) / 2);
+		SetDrawingMode(B_OP_ALPHA);
+		SetBlendingMode(B_PIXEL_ALPHA, B_ALPHA_OVERLAY);
+		DrawBitmap(fIcon, fIcon->Bounds(), destination);
+	}
+
+private:
+	BBitmap* fIcon;
+};
 
 enum
 {
@@ -115,7 +177,7 @@ RecipeItem::RecipeItem(const char *name, const char *category, const int32 &numb
  	fNumber(number)
 {
 	BString title;
-	title << number << ": " << name;
+	title << name << "  [" << category << "]";
 	SetText(title.String());
 }
 
@@ -145,6 +207,8 @@ RecipeMenuItem::RecipeMenuItem(const char *name, const char *category,
 
 ChefView::ChefView(const BRect &rect)
  :	BView(rect, "chefview", B_FOLLOW_ALL, B_WILL_DRAW | B_FRAME_EVENTS),
+	fRecipeScroll(NULL),
+	fEmptyRecipe(NULL),
  	fPrintSettings(NULL),
  	fHeaderFont(be_bold_font)
 {
@@ -220,7 +284,7 @@ ChefView::ChefView(const BRect &rect)
 	
 	r.OffsetBy(0,r.Height() + 10);
 	r.bottom = Bounds().bottom - 10;
-	r.right = r.right + 100 - B_V_SCROLL_BAR_WIDTH;
+	r.right = r.left + 250 - B_V_SCROLL_BAR_WIDTH;
 //	fResults = new BListView(r, "results",B_SINGLE_SELECTION_LIST,B_FOLLOW_ALL);
 	fResults = new BListView(r, "results",B_MULTIPLE_SELECTION_LIST,B_FOLLOW_ALL);
 	fResults->SetSelectionMessage(new BMessage(M_SET_RECIPE));
@@ -238,8 +302,11 @@ ChefView::ChefView(const BRect &rect)
 	BRect textrect = r.OffsetToCopy(0,0);
 	textrect.InsetBy(10,10);
 	fRecipe = new BTextView(r, "recipe", textrect, B_FOLLOW_ALL);
-	scroll = new BScrollView("scrollrecipe",fRecipe,B_FOLLOW_ALL,0,false, true);
-	back->AddChild(scroll);
+	fRecipeScroll = new BScrollView("scrollrecipe",fRecipe,B_FOLLOW_ALL,0,false, true);
+	back->AddChild(fRecipeScroll);
+	fEmptyRecipe = new EmptyRecipeView(fRecipeScroll->Frame());
+	back->AddChild(fEmptyRecipe);
+	fRecipeScroll->Hide();
 	
 	fRecipe->MakeEditable(false);
 	fRecipe->SetStylable(true);
@@ -271,6 +338,8 @@ void ChefView::AttachedToWindow(void)
 	fFileMenu->SetTargetForItems(this);
 	fRecipeMenu->SetTargetForItems(this);
 	fFavoritesMenu->SetTargetForItems(this);
+
+	LoadAllRecipes();
 }
 
 void ChefView::MessageReceived(BMessage *msg)
@@ -358,8 +427,8 @@ void ChefView::MessageReceived(BMessage *msg)
 		case M_SHOW_ADD_RECIPE:
 		{
 			BRect r(Window()->Frame().OffsetByCopy(20,20));
-			r.right = r.left + 300;
-			r.bottom = r.top + 200;
+			r.right = r.left + 700;
+			r.bottom = r.top + 600;
 			RecipeEditor *win = new RecipeEditor(r,BMessenger(this),-1,NULL);
 			win->AddToSubset(Window());
 			win->Show();
@@ -377,8 +446,8 @@ void ChefView::MessageReceived(BMessage *msg)
 					fResults->Select(fResults->IndexOf(item));
 				
 				BRect r(Window()->Frame().OffsetByCopy(20,20));
-				r.right = r.left + 300;
-				r.bottom = r.top + 200;
+				r.right = r.left + 700;
+				r.bottom = r.top + 600;
 				RecipeEditor *win = new RecipeEditor(r,BMessenger(this),item->fNumber,
 													item->fCategory.String());
 				win->AddToSubset(Window());
@@ -444,6 +513,8 @@ void ChefView::MessageReceived(BMessage *msg)
 					else
 						fResults->Select(index-1);
 				}
+				else
+					ShowEmptyRecipe();
 			}
 			break;
 		}
@@ -545,6 +616,11 @@ void ChefView::MessageReceived(BMessage *msg)
 				SetRecipe(item->fNumber, item->fCategory.String());
 			break;
 		}
+		case M_RECIPES_CHANGED:
+		{
+			LoadAllRecipes();
+			break;
+		}
 		case M_ADD_BOOKMARK:
 		{
 			RecipeItem *item = GetCurrentRecipe();
@@ -599,6 +675,11 @@ void ChefView::SetRecipe(const int32 &number, const char *category)
 	BString name, ingredients, directions;
 	if(GetRecipe(number, category, name, ingredients, directions))
 	{
+		if (!fEmptyRecipe->IsHidden())
+			fEmptyRecipe->Hide();
+		if (fRecipeScroll->IsHidden())
+			fRecipeScroll->Show();
+
 		BString data;
 		
 		data << "Category: " << category;
@@ -615,6 +696,34 @@ void ChefView::SetRecipe(const int32 &number, const char *category)
 		data << directions;
 		fRecipe->Insert(data.String());
 	}
+}
+
+
+void ChefView::ShowEmptyRecipe(void)
+{
+	fRecipe->SetText("");
+	if (!fRecipeScroll->IsHidden())
+		fRecipeScroll->Hide();
+	if (fEmptyRecipe->IsHidden())
+		fEmptyRecipe->Show();
+	fEmptyRecipe->Invalidate();
+}
+
+
+void ChefView::LoadAllRecipes(void)
+{
+	ClearResults();
+	fCategoryLabel->SetText("All Recipes");
+
+	BList recipes;
+	if (GetAllRecipes(recipes) != B_OK)
+		return;
+	for (int32 i = 0; i < recipes.CountItems(); i++) {
+		RecipeRecord* recipe = static_cast<RecipeRecord*>(recipes.ItemAt(i));
+		fResults->AddItem(new RecipeItem(recipe->name.String(),
+			recipe->category.String(), recipe->number));
+	}
+	FreeRecipes(recipes);
 }
 
 int32 ChefView::SearchThread(void *data)
@@ -954,6 +1063,7 @@ void ChefView::ClearResults(void)
 	fResults->MakeEmpty();
 	Window()->EndViewTransaction();
 	Window()->Unlock();
+	ShowEmptyRecipe();
 }
 
 void InsertMenuItemSorted(BMenu *menu, BMenuItem *item)

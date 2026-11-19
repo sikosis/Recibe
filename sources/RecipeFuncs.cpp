@@ -6,6 +6,7 @@
 #include <File.h>
 #include <Locker.h>
 #include <Message.h>
+#include <Path.h>
 #include <TypeConstants.h>
 
 #include <algorithm>
@@ -16,6 +17,7 @@
 
 static BLocker sStoreLock("recipe store");
 static BString sStorePath;
+static BString sIngredientCatalogPath;
 
 static const char* kRecipeType = "application/x-vnd.whc-recibe-recipe";
 static const char* kAttrName = "RECIBE:name";
@@ -24,8 +26,38 @@ static const char* kAttrNumber = "RECIBE:number";
 
 
 RecipeRecord::RecipeRecord()
-	:	number(-1)
+	:	schemaVersion(1),
+		number(-1)
 {
+}
+
+
+static const char* kDefaultIngredients[] = {
+	"Baking powder", "Baking soda", "Brown sugar", "Butter", "Caster sugar",
+	"Chicken", "Cocoa powder", "Cream", "Eggs", "Garlic", "Honey", "Milk",
+	"Olive oil", "Onion", "Pepper", "Plain flour", "Rice", "Salt",
+	"Self-raising flour", "Sugar", "Vanilla extract", "Water", "Yeast", NULL
+};
+
+
+static status_t
+EnsureIngredientCatalog()
+{
+	BEntry entry(sIngredientCatalogPath.String());
+	if (entry.Exists())
+		return B_OK;
+
+	BFile file(sIngredientCatalogPath.String(),
+		B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+	status_t status = file.InitCheck();
+	if (status != B_OK)
+		return status;
+
+	BMessage archive('Ingr');
+	archive.AddInt32("schema_version", 1);
+	for (int32 i = 0; kDefaultIngredients[i] != NULL; i++)
+		archive.AddString("ingredient", kDefaultIngredients[i]);
+	return archive.Flatten(&file);
 }
 
 
@@ -101,6 +133,16 @@ RecipePath(const char* category, int32 number)
 }
 
 
+static bool
+ParseRecipeFileName(const char* name, long& number)
+{
+	int consumed = 0;
+	return name != NULL
+		&& sscanf(name, "%ld.recipe%n", &number, &consumed) == 1
+		&& consumed > 0 && name[consumed] == '\0';
+}
+
+
 static status_t
 LoadRecipeFile(const char* category, int32 number, RecipeRecord& recipe)
 {
@@ -114,6 +156,10 @@ LoadRecipeFile(const char* category, int32 number, RecipeRecord& recipe)
 	if (status != B_OK)
 		return status;
 
+	recipe.category = category;
+	if (archive.FindInt32("schema_version", &recipe.schemaVersion) != B_OK)
+		recipe.schemaVersion = 1;
+
 	const char* value;
 	if (archive.FindInt32("number", &recipe.number) != B_OK
 		|| archive.FindString("name", &value) != B_OK) {
@@ -121,6 +167,24 @@ LoadRecipeFile(const char* category, int32 number, RecipeRecord& recipe)
 	}
 	recipe.name = value;
 	recipe.ingredients = archive.FindString("ingredients", &value) == B_OK ? value : "";
+	if (archive.FindString("ingredient_notes", &value) == B_OK)
+		recipe.ingredientNotes = value;
+	else if (recipe.schemaVersion < 2)
+		recipe.ingredientNotes = recipe.ingredients;
+
+	BMessage ingredientArchive;
+	for (int32 i = 0;
+		archive.FindMessage("ingredient", i, &ingredientArchive) == B_OK; i++) {
+		IngredientRecord ingredient;
+		if (ingredientArchive.FindString("name", &value) != B_OK)
+			continue;
+		ingredient.name = value;
+		if (ingredientArchive.FindString("quantity", &value) == B_OK)
+			ingredient.quantity = value;
+		if (ingredientArchive.FindString("measurement", &value) == B_OK)
+			ingredient.measurement = value;
+		recipe.ingredientRows.push_back(ingredient);
+	}
 	recipe.directions = archive.FindString("directions", &value) == B_OK ? value : "";
 	return B_OK;
 }
@@ -130,28 +194,56 @@ static status_t
 WriteRecipeFile(const char* category, const RecipeRecord& recipe)
 {
 	BString path = RecipePath(category, recipe.number);
-	BFile file(path.String(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
-	status_t status = file.InitCheck();
-	if (status != B_OK)
-		return status;
+	BString temporaryPath(path);
+	temporaryPath << ".tmp";
+	BEntry(temporaryPath.String()).Remove();
 
-	BMessage archive('Rcpe');
-	archive.AddInt32("number", recipe.number);
-	archive.AddString("name", recipe.name);
-	archive.AddString("ingredients", recipe.ingredients);
-	archive.AddString("directions", recipe.directions);
-	status = archive.Flatten(&file);
-	if (status != B_OK)
-		return status;
+	status_t status;
+	{
+		BFile file(temporaryPath.String(),
+			B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);
+		status = file.InitCheck();
+		if (status != B_OK)
+			return status;
 
-	file.WriteAttr("BEOS:TYPE", B_MIME_STRING_TYPE, 0, kRecipeType,
-		strlen(kRecipeType) + 1);
-	file.WriteAttrString(kAttrName, &recipe.name);
-	BString categoryName(category);
-	file.WriteAttrString(kAttrCategory, &categoryName);
-	file.WriteAttr(kAttrNumber, B_INT32_TYPE, 0, &recipe.number,
-		sizeof(recipe.number));
-	return file.Sync();
+		BMessage archive('Rcpe');
+		archive.AddInt32("schema_version", 2);
+		archive.AddInt32("number", recipe.number);
+		archive.AddString("name", recipe.name);
+		archive.AddString("ingredients", recipe.ingredients);
+		archive.AddString("ingredient_notes", recipe.ingredientNotes);
+		for (size_t i = 0; i < recipe.ingredientRows.size(); i++) {
+			const IngredientRecord& ingredient = recipe.ingredientRows[i];
+			BMessage ingredientArchive('Ingd');
+			ingredientArchive.AddString("quantity", ingredient.quantity);
+			ingredientArchive.AddString("measurement", ingredient.measurement);
+			ingredientArchive.AddString("name", ingredient.name);
+			archive.AddMessage("ingredient", &ingredientArchive);
+		}
+		archive.AddString("directions", recipe.directions);
+		status = archive.Flatten(&file);
+		if (status == B_OK) {
+			file.WriteAttr("BEOS:TYPE", B_MIME_STRING_TYPE, 0, kRecipeType,
+				strlen(kRecipeType) + 1);
+			file.WriteAttrString(kAttrName, &recipe.name);
+			BString categoryName(category);
+			file.WriteAttrString(kAttrCategory, &categoryName);
+			file.WriteAttr(kAttrNumber, B_INT32_TYPE, 0, &recipe.number,
+				sizeof(recipe.number));
+			status = file.Sync();
+		}
+	}
+
+	if (status != B_OK) {
+		BEntry(temporaryPath.String()).Remove();
+		return status;
+	}
+
+	BEntry temporaryEntry(temporaryPath.String());
+	status = temporaryEntry.Rename(path.String(), true);
+	if (status != B_OK)
+		temporaryEntry.Remove();
+	return status;
 }
 
 
@@ -163,7 +255,7 @@ NextRecipeNumber(const char* category)
 	int32 highest = 0;
 	while (directory.GetNextRef(&ref) == B_OK) {
 		long number;
-		if (sscanf(ref.name, "%ld.recipe", &number) == 1 && number > highest)
+		if (ParseRecipeFileName(ref.name, number) && number > highest)
 			highest = number;
 	}
 	return highest + 1;
@@ -209,6 +301,15 @@ OpenRecipeStore(const char* path)
 		return status;
 
 	sStorePath = path;
+	BPath storePath(path);
+	BPath settingsPath;
+	if (storePath.GetParent(&settingsPath) == B_OK) {
+		sIngredientCatalogPath = settingsPath.Path();
+		sIngredientCatalogPath << "/ingredients.catalog";
+		status = EnsureIngredientCatalog();
+		if (status != B_OK)
+			return status;
+	}
 	if (!CategoryExists("Misc"))
 		AddCategory("Misc");
 	return B_OK;
@@ -220,6 +321,7 @@ CloseRecipeStore()
 {
 	BAutolock lock(&sStoreLock);
 	sStorePath.Truncate(0);
+	sIngredientCatalogPath.Truncate(0);
 }
 
 
@@ -272,7 +374,7 @@ GetRecipes(const char* category, int32 firstNumber, int32 lastNumber,
 	entry_ref ref;
 	while (directory.GetNextRef(&ref) == B_OK) {
 		long number;
-		if (sscanf(ref.name, "%ld.recipe", &number) != 1
+		if (!ParseRecipeFileName(ref.name, number)
 			|| number < firstNumber || (lastNumber >= 0 && number > lastNumber)) {
 			continue;
 		}
@@ -297,6 +399,40 @@ GetRecipes(const char* category, int32 firstNumber, int32 lastNumber,
 			delete sorted[i];
 		sorted.resize(limit);
 	}
+	for (size_t i = 0; i < sorted.size(); i++)
+		recipes.AddItem(sorted[i]);
+	return B_OK;
+}
+
+
+status_t
+GetAllRecipes(BList& recipes)
+{
+	if (!recipes.IsEmpty())
+		return B_BAD_VALUE;
+
+	BList categories;
+	status_t status = GetCategories(categories);
+	if (status != B_OK)
+		return status;
+
+	std::vector<RecipeRecord*> sorted;
+	for (int32 i = 0; i < categories.CountItems(); i++) {
+		BString* category = static_cast<BString*>(categories.ItemAt(i));
+		BList categoryRecipes;
+		if (GetRecipes(category->String(), 0, -1, true, 0,
+				categoryRecipes) != B_OK) {
+			continue;
+		}
+		for (int32 j = 0; j < categoryRecipes.CountItems(); j++) {
+			sorted.push_back(static_cast<RecipeRecord*>(
+				categoryRecipes.ItemAt(j)));
+		}
+		categoryRecipes.MakeEmpty();
+	}
+	FreeCategories(categories);
+
+	std::sort(sorted.begin(), sorted.end(), RecipeNameLess);
 	for (size_t i = 0; i < sorted.size(); i++)
 		recipes.AddItem(sorted[i]);
 	return B_OK;
@@ -353,6 +489,69 @@ FreeRecipes(BList& recipes)
 }
 
 
+status_t
+GetIngredientNames(BList& ingredients)
+{
+	if (!ingredients.IsEmpty())
+		return B_BAD_VALUE;
+
+	BAutolock lock(&sStoreLock);
+	BFile file(sIngredientCatalogPath.String(), B_READ_ONLY);
+	status_t status = file.InitCheck();
+	if (status != B_OK)
+		return status;
+
+	BMessage archive;
+	status = archive.Unflatten(&file);
+	if (status != B_OK)
+		return status;
+
+	std::vector<BString*> sorted;
+	const char* value;
+	for (int32 i = 0; archive.FindString("ingredient", i, &value) == B_OK; i++)
+		sorted.push_back(new BString(value));
+	std::sort(sorted.begin(), sorted.end(), CategoryNameLess);
+	for (size_t i = 0; i < sorted.size(); i++)
+		ingredients.AddItem(sorted[i]);
+	return B_OK;
+}
+
+
+BString
+FormatIngredient(const IngredientRecord& ingredient)
+{
+	BString line;
+	if (!ingredient.quantity.IsEmpty())
+		line << ingredient.quantity << " ";
+	if (!ingredient.measurement.IsEmpty())
+		line << ingredient.measurement << " ";
+	line << ingredient.name;
+	return line;
+}
+
+
+BString
+BuildIngredientsText(const std::vector<IngredientRecord>& ingredients,
+	const char* freeformNotes)
+{
+	BString text;
+	for (size_t i = 0; i < ingredients.size(); i++) {
+		BString line = FormatIngredient(ingredients[i]);
+		if (line.IsEmpty())
+			continue;
+		if (!text.IsEmpty())
+			text << "\n";
+		text << line;
+	}
+	if (freeformNotes != NULL && freeformNotes[0] != '\0') {
+		if (!text.IsEmpty())
+			text << "\n";
+		text << freeformNotes;
+	}
+	return text;
+}
+
+
 int32
 CountRecipes(const char* category)
 {
@@ -362,8 +561,14 @@ CountRecipes(const char* category)
 	BDirectory directory(CategoryPath(category).String());
 	if (directory.InitCheck() != B_OK)
 		return 0;
-	int32 count = directory.CountEntries();
-	return count < 0 ? 0 : count;
+	int32 count = 0;
+	entry_ref ref;
+	while (directory.GetNextRef(&ref) == B_OK) {
+		long number;
+		if (ParseRecipeFileName(ref.name, number))
+			count++;
+	}
+	return count;
 }
 
 
@@ -427,7 +632,8 @@ DeleteCategory(const char* name)
 
 bool
 AddRecipe(const char* category, const char* name, const char* ingredients,
-	const char* directions)
+	const char* directions, const std::vector<IngredientRecord>* ingredientRows,
+	const char* ingredientNotes)
 {
 	if (category == NULL || name == NULL || name[0] == '\0')
 		return false;
@@ -438,6 +644,10 @@ AddRecipe(const char* category, const char* name, const char* ingredients,
 	recipe.number = NextRecipeNumber(category);
 	recipe.name = name;
 	recipe.ingredients = ingredients ? ingredients : "";
+	recipe.ingredientNotes = ingredientNotes != NULL
+		? ingredientNotes : recipe.ingredients;
+	if (ingredientRows != NULL)
+		recipe.ingredientRows = *ingredientRows;
 	recipe.directions = directions ? directions : "";
 	return WriteRecipeFile(category, recipe) == B_OK;
 }
@@ -445,7 +655,9 @@ AddRecipe(const char* category, const char* name, const char* ingredients,
 
 bool
 UpdateRecipe(const int32& number, const char* category, const char* name,
-	const char* ingredients, const char* directions)
+	const char* ingredients, const char* directions,
+	const std::vector<IngredientRecord>* ingredientRows,
+	const char* ingredientNotes)
 {
 	if (category == NULL || name == NULL || name[0] == '\0' || number < 0)
 		return false;
@@ -454,6 +666,10 @@ UpdateRecipe(const int32& number, const char* category, const char* name,
 	recipe.number = number;
 	recipe.name = name;
 	recipe.ingredients = ingredients ? ingredients : "";
+	recipe.ingredientNotes = ingredientNotes != NULL
+		? ingredientNotes : recipe.ingredients;
+	if (ingredientRows != NULL)
+		recipe.ingredientRows = *ingredientRows;
 	recipe.directions = directions ? directions : "";
 	return WriteRecipeFile(category, recipe) == B_OK;
 }
@@ -461,7 +677,8 @@ UpdateRecipe(const int32& number, const char* category, const char* name,
 
 bool
 GetRecipe(const int32& number, const char* category, BString& name,
-	BString& ingredients, BString& directions)
+	BString& ingredients, BString& directions,
+	std::vector<IngredientRecord>* ingredientRows, BString* ingredientNotes)
 {
 	if (category == NULL || number < 0)
 		return false;
@@ -472,6 +689,10 @@ GetRecipe(const int32& number, const char* category, BString& name,
 	name = recipe.name;
 	ingredients = recipe.ingredients;
 	directions = recipe.directions;
+	if (ingredientRows != NULL)
+		*ingredientRows = recipe.ingredientRows;
+	if (ingredientNotes != NULL)
+		*ingredientNotes = recipe.ingredientNotes;
 	return true;
 }
 

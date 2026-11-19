@@ -8,11 +8,16 @@
 #include <Menu.h>
 #include <String.h>
 #include <TextView.h>
+#include <TextControl.h>
+#include <ListView.h>
+#include <vector>
 #include "AutoTextControl.h"
+#include "RecipeFuncs.h"
 
 #define M_EDIT_RECIPE 'edrc'
 #define M_ADD_RECIPE 'adrc'
 #define M_SET_RECIPE 'strc'
+#define M_RECIPES_CHANGED 'rcch'
 
 class RecipeEditor : public BWindow
 {
@@ -23,19 +28,31 @@ public:
 	void FrameResized(float w, float h);
 
 private:
+	void AddIngredientRow(void);
+	void RemoveIngredientRow(void);
+	void PopulateIngredientList(void);
+	void SaveAndClose(bool editing);
+
 	BMessenger fMessenger;
 	
 	BMenu		*fCategories;
 	
 	AutoTextControl	*fNameBox;
-	BTextView		*fIngredientBox,
-					*fDirectionsBox;
+	BTextControl	*fQuantityBox;
+	BMenu		*fMeasurements,
+				*fIngredients;
+	BListView	*fIngredientList;
+	BTextView	*fIngredientNotes,
+				*fDirectionsBox;
+	std::vector<IngredientRecord> fIngredientRecords;
 	
 	int32			fNumber;
 	BString			fCategory;
 	
 	BButton		*fOK,
-				*fCancel;
+				*fCancel,
+				*fAddIngredient,
+				*fRemoveIngredient;
 };
 
 #endif

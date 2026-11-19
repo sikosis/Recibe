@@ -10,7 +10,7 @@ public:
 App::App(void)
  :	BApplication("application/x-vnd.whc-Recibe")
 {
-	ChefWindow *win = new ChefWindow(BRect(100,100,600,400));
+	ChefWindow *win = new ChefWindow(BRect(80,80,980,680));
 	win->Show();
 }
 
